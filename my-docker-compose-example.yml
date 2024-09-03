@@ -1,0 +1,337 @@
+# docker compose -f .\my-docker-compose.yml up --build -d
+version: "3.9"
+x-environment: &common-variables
+  MONGO_URI: mongodb://mongodb-service:27017/sportjacks-ecommerce
+  JWT_EXPIRES_IN: 90d
+  JWT_SECRET: ThisIsMySecret
+  NODE_ENV: DEVELOPMENT
+  RBAC_SERVICE: http://rbac-service:4001
+  MASTER_SERVICE: http://master-service:4002
+  PRODUCT_SERVICE: http://product-service:4003
+  UTILITY_SERVICE: http://utility-service:4005
+  WEBSITE_MASTER_SERVICE: http://website-master-service:4006
+  WEBSITE_USER_SERVICE: http://website-user-service:4007
+  COACH_SERVICE: http://coach-service:4008
+  ACADEMY_SERVICE: http://academy-service:4009
+  NOTIFICATION_SERVICE: http://notification-service:4010
+  AWS_PINPOINT_REGION: ap-south-1
+  AWS_PINPOINT_SENDER_ID: sportjacks
+  AWS_PINPOINT_APPLICATION_ID:
+  AWS_PINPOINT_TEMPLATE_ID_REGISTRATION:
+  AWS_PINPOINT_TEMPLATE_ID_CHANGE_EMAIL:
+  AWS_PINPOINT_TEMPLATE_ID_CHANGE_PHONE:
+  AWS_PINPOINT_TEMPLATE_ID_LOGIN:
+  AWS_PINPOINT_TEMPLATE_ID_DEFAULT:
+  AWS_PINPOINT_ENTITY_ID:
+  AWS_S3_BUCKET_NAME:
+  AWS_ACCESS_KEY_ID:
+  AWS_SECRET_ACCESS_KEY:
+  REFRESH_TOKEN_EXPIRES_IN: 90d
+  REFRESH_TOKEN_SECRET: secretNew
+  ENCRYPTION_KEY: SPORTJACKS
+  ENCRYPTION_IV: SPORTJACKS
+  KAFKA_URL: kafka:9092
+  ANALYTICS_MEASUREMENT_ID: G-XWBBWN3FD7
+  ANALYTICS_API_SECRET: q6evFYmoRtySXCfpwmxuWQ
+  ANALYTICS_CLIENT_ID: 1103@cliend-id
+
+name: my-backend
+services:
+  zookeeper:
+    container_name: my-zookeeper
+    image: wurstmeister/zookeeper
+    ports:
+      - 2181:2181
+    networks:
+      - network-service
+    restart: on-failure
+    healthcheck:
+      test: ["CMD-SHELL", "echo ruok | nc -w 2 zookeeper 2181"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 5s
+    # environment:
+    #   - ZOO_PORT_NUMBER=2181
+    #   - ZOO_SERVER_ID=1
+    #   - ALLOW_ANONYMOUS_LOGIN=yes
+
+  kafka:
+    container_name: my-kafka
+    image: wurstmeister/kafka
+    ports:
+      - 9092:9092
+    volumes:
+      - ./data/kafka:/var/run/docker.sock
+    networks:
+      - network-service
+    environment:
+      - KAFKA_ADVERTISED_HOST_NAME=kafka
+      - KAFKA_ADVERTISED_PORT=9092
+      - KAFKA_ZOOKEEPER_CONNECT=zookeeper:2181
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    healthcheck:
+      test: /opt/kafka_2.13-2.8.1/bin/kafka-cluster.sh cluster-id --bootstrap-server kafka:9092 || exit 1
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 5s
+
+  mongodb-service:
+    container_name: my-mongo
+    image: mongo:latest
+    # command: --replSet rs0
+    ports:
+      - 27020:27017
+    expose:
+      - 27020
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh mongodb-service:27017 --quiet
+      interval: 10s
+      retries: 5
+      timeout: 10s
+      start_period: 5s
+    volumes:
+      - ./data/mongo:/data/db
+    networks:
+      - network-service
+    restart: on-failure
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    # environment:
+    #   MONGO_INITDB_ROOT_USERNAME: admin
+    #   MONGO_INITDB_ROOT_PASSWORD: admin123
+
+  api-gateway:
+    container_name: my-api-gateway
+    build: ./api-gateway
+    volumes:
+      - ./api-gateway:/data/app
+    ports:
+      - 8000:8000
+    restart: on-failure
+    networks:
+      - network-service
+    depends_on:
+      # heakth check for socket services
+      notification-service:
+        condition: service_healthy
+      mongodb-service:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      zookeeper:
+        condition: service_healthy
+    environment:
+      <<: *common-variables
+      PORT: 8000
+
+  rbac-service:
+    container_name: my-rbac-service
+    build: ./rbac-service
+    volumes:
+      - ./rbac-service:/data/app
+    ports:
+      - 4001:4001
+    restart: on-failure
+    networks:
+      - network-service
+    depends_on:
+      mongodb-service:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      zookeeper:
+        condition: service_healthy
+    environment:
+      <<: *common-variables
+      PORT: 4001
+      MONGO_URI: mongodb://admin:admin123@13.201.211.234:27017/sportjacks-rbac?retryWrites=true&w=majority&authSource=admin&directConnection=true
+
+  master-service:
+    container_name: my-master-service
+    build: ./master-service
+    volumes:
+      - ./master-service:/data/app
+    ports:
+      - 4002:4002
+    restart: on-failure
+    networks:
+      - network-service
+    depends_on:
+      mongodb-service:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      zookeeper:
+        condition: service_healthy
+    environment:
+      <<: *common-variables
+      PORT: 4002
+
+  product-service:
+    container_name: my-product-service
+    build: ./product-service
+    volumes:
+      - ./product-service:/data/app
+    ports:
+      - 4003:4003
+    restart: on-failure
+    networks:
+      - network-service
+    depends_on:
+      mongodb-service:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      zookeeper:
+        condition: service_healthy
+    environment:
+      <<: *common-variables
+      PORT: 4003
+
+  utility-service:
+    container_name: my-utility-service
+    build: ./utility-service
+    volumes:
+      - ./utility-service:/data/app
+    ports:
+      - 4005:4005
+    restart: on-failure
+    networks:
+      - network-service
+    depends_on:
+      mongodb-service:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      zookeeper:
+        condition: service_healthy
+    environment:
+      <<: *common-variables
+      PORT: 4005
+
+  website-master-service:
+    container_name: my-website-master-service
+    build: ./website-master-service
+    volumes:
+      - ./website-master-service:/data/app
+    ports:
+      - 4006:4006
+    restart: on-failure
+    networks:
+      - network-service
+    depends_on:
+      mongodb-service:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      zookeeper:
+        condition: service_healthy
+    environment:
+      <<: *common-variables
+      PORT: 4006
+      MONGO_URI: mongodb://admin:admin123@13.201.211.234:27017/sportjacks-website?retryWrites=true&w=majority&authSource=admin&directConnection=true
+
+  website-user-service:
+    container_name: my-website-user-service
+    build: ./website-user-service
+    volumes:
+      - ./website-user-service:/data/app
+    ports:
+      - 4007:4007
+    restart: on-failure
+    networks:
+      - network-service
+    depends_on:
+      mongodb-service:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      zookeeper:
+        condition: service_healthy
+    environment:
+      <<: *common-variables
+      PORT: 4007
+      MONGO_URI: mongodb://admin:admin123@13.201.211.234:27017/sportjacks-website?retryWrites=true&w=majority&authSource=admin&directConnection=true
+
+  coach-service:
+    container_name: my-coach-service
+    build: ./coach-service
+    volumes:
+      - ./coach-service:/data/app
+    ports:
+      - 4008:4008
+    restart: on-failure
+    networks:
+      - network-service
+    depends_on:
+      mongodb-service:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      zookeeper:
+        condition: service_healthy
+    environment:
+      <<: *common-variables
+      PORT: 4008
+      MONGO_URI: mongodb://admin:admin123@13.201.211.234:27017/sportjacks-website?retryWrites=true&w=majority&authSource=admin&directConnection=true
+
+  academy-service:
+    container_name: my-academy-service
+    build: ./academy-service
+    volumes:
+      - ./academy-service:/data/app
+    ports:
+      - 4009:4009
+    restart: on-failure
+    networks:
+      - network-service
+    depends_on:
+      mongodb-service:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      zookeeper:
+        condition: service_healthy
+    environment:
+      <<: *common-variables
+      PORT: 4009
+      MONGO_URI: mongodb://admin:admin123@13.201.211.234:27017/sportjacks-website?retryWrites=true&w=majority&authSource=admin&directConnection=true
+
+  notification-service:
+    container_name: my-notification-service
+    build: ./notification-service
+    volumes:
+      - ./notification-service:/data/app
+    ports:
+      - 40010:4010
+    restart: on-failure
+    networks:
+      - network-service
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:4010/health || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 5s
+    depends_on:
+      mongodb-service:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      zookeeper:
+        condition: service_healthy
+    environment:
+      <<: *common-variables
+      PORT: 4010
+      MONGO_URI: mongodb://mongodb-service:27017/sportjacks-notification
+
+networks:
+  network-service:
+    driver: bridge
